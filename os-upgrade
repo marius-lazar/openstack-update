@@ -1,0 +1,135 @@
+#!/bin/bash
+### Script for updating OpenStack services
+### Marius Lazar @ AeriaGames - 10.05.2021
+#
+# VARIABLES
+ver="focal-wallaby"   # version to update to
+### cloud:focal-wallaby
+declare -a machines
+
+# STEP 1 - Update the machines
+#
+## running the updates on all machines
+./os-update-distro
+#
+# STEP 2 - update charms
+# use with caution - needs work
+#./os-up-charm
+
+#
+# STEP 3 - Do a db backup
+#
+echo "Create DB backup and save it localy in /backup"
+#juju run-action --wait mysql-innodb-cluster/0 mysqldump
+# copy the backup into /backups
+#juju ssh mysql-innodb-cluster/0 sudo chown -R ubuntu. /var/backups/mysql/
+#juju scp -- mysql-innodb-cluster/0:/var/backups/mysql/mysqldump-all-databases-$(date +"%Y%m%d")*.gz /backups
+# archive old data
+juju run-action --wait nova-cloud-controller/0 archive-data
+
+#
+# STEP 4 - run the actual update in the order of dependencies
+# create the function for updating
+function update(){
+	local charm=$1
+	local status=$2 ### <y or n> sow the status
+	echo "Starting update on " $charm
+	juju run-action --wait $charm pause
+	juju run-action --wait $charm openstack-upgrade
+	juju run-action --wait $charm resume
+	sleep 10
+	if [ $status = "y" ]; then
+	    watch -n5 -c juju status --color
+	fi
+}
+
+# create preparation function
+function prep(){
+	local charm=$1  ### what is updating
+	local type=$2  ### how it's updating <origin or source>
+	declare -a units
+	# this won't hurt if it's failing
+	juju config $charm action-managed-upgrade=True
+	if [ $type = "origin" ]; then
+	    juju config $charm openstack-origin=cloud:$ver
+	elif [ $type = "source" ]; then
+	    juju config $charm source=cloud:$ver
+	else
+	    echo "WRONG type!!!"
+	    exit 1
+        fi
+	# trying to find the leader as it should always be updated first
+	cdetail=$(juju status --format="json" $charm | jq  .applications.\"$charm\".units)
+	cunits=$(echo $cdetail | jq -rc 'keys')
+	# removing the [ ]
+	cunits=${cunits:1:-1} 
+	OLDIFS=$IFS
+	IFS=','
+	for cunit in $cunits
+	do
+	    IFS=$OLDIFS
+	    # removing " "
+	    cunit=${cunit:1:-1}
+	    trueleader=$(echo $cdetail | jq .\"$cunit\".leader)
+	    if [ $trueleader = "true" ]; then
+		cleader=$cunit
+		echo $cleader
+	    else
+		units+=($cunit)
+	    fi
+	done
+	IFS=$OLDIFS
+	# running the actual update starting with the leader
+	update $cleader y
+	if [ ${#units[@]} -gt 0 ] ; then
+	for unit in "${units[@]}"
+	do
+	    update $unit n
+	done
+	fi
+	# clean up variables
+	unset unit units charm type cleader OLDIFS cunit trueleader cunits cdetail
+}
+
+# ITEMIZED UPDATE!
+
+#prep rabbitmq-server origin
+### different update procedure
+#juju run-action --wait rabbitmq-server complete-cluster-series-upgrade
+# leave ceph alone!
+#prep ceph-mon source
+
+prep keystone origin
+prep vault origin
+  ### this may fail and it's OK-ish
+#prep aodh origin
+#barbican
+#prep celiometer origin
+#ceph-fs
+#prep ceph-radosgw source
+prep cinder origin
+#designate
+#designate-bind
+#prep glance origin
+#prep gnocchi origin
+#heat
+#manila
+#manila-generic
+prep neutron-api origin
+
+#neutron-gateway
+prep placement origin
+prep nova-cloud-controller origin
+prep openstack-dashboard origin
+prep nova-compute origin
+#prep ceph-osd source
+#swift-proxy
+#swift storage
+#octavia
+prep ovn-central source
+prep cinder-ceph origin
+  ### may fail
+#prep memcached origin
+prep neutron-api-plugin-ovn origin
+prep ovn-chassis origin
+  ### may fail

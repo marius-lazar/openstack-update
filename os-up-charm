@@ -1,0 +1,98 @@
+#!/bin/bash
+up-charm(){
+    local version
+    local newver
+    local charmname
+    local status
+    local result
+    charmname=$1
+    echo "> Starting upgrade on $charmname"
+    status=$( juju status $charmname --format json )
+    version=$( echo $status | jq .applications.\"$charmname\".\"charm-rev\" )
+    let "newver = $version + 1"
+#    echo "Charm: $charmname | $version -> $newver"
+    result=$( juju upgrade-charm $charmname --revision $newver 2>&1 )
+    if [[ "$result" == *"ERROR"* ]]; then
+	echo "No upgrade neccessary"
+	sleep 2
+    else
+	watch -n2 -c juju status $charmname --color
+    fi
+echo "< done $charmname"
+}
+
+up-charm mysql-innodb-cluster
+
+#up-charm rabbitmq-server
+
+up-charm ceph-mon
+
+up-charm keystone
+
+#up-charm aodh
+#barbican
+#up-charm ceilometer
+#ceph-fs
+
+up-charm ceph-radosgw
+
+up-charm cinder
+
+#designate
+#designate-bind
+up-charm glance
+
+#up-charm gnocchi
+#heat
+#manila
+#manila-generic
+
+up-charm neutron-api
+#neutron-gateway
+
+up-charm placement
+
+up-charm nova-cloud-controller
+
+up-charm openstack-dashboard
+
+up-charm nova-compute
+
+up-charm ceph-osd
+#swift-proxy
+#swift-storage
+
+up-charm ovn-central
+
+up-charm cinder-ceph
+
+#up-charm memcached
+
+up-charm neutron-api-plugin-ovn
+
+up-charm ntp
+
+up-charm ovn-chassis
+
+up-charm vault
+
+echo ">> From this point on is updating the mysql connectors (routers). THIS MAY BRAKE THINGS BEYOND RECOVERING! (ish) "
+echo ">>Choose your path:"
+echo ">> enter - continue"
+echo ">> ctrl+c - leave it as it is (recommended)"
+read
+
+# this one should be enough if you decide to go thru with this
+up-charm mysql-router
+
+<<comment
+up-charm vault-mysql-router
+up-charm keystone-mysql-router
+up-charm cinder-mysql-router
+up-charm glance-mysql-router
+up-charm gnocchi-mysql-router
+up-charm neutron-mysql-router
+up-charm placement-mysql-router
+up-charm dashboard-mysql-router
+up-charm nova-mysql-router
+comment

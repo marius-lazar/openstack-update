@@ -1,0 +1,57 @@
+#!/bin/bash
+machines=($(juju machines | awk '{print $1}'| tail -n +2))
+# preparing the machines for upgrade
+for machine in ${machines[@]}
+    do
+	    echo ">> Working on $machine"
+	    juju upgrade-series $machine prepare focal
+done
+echo ">> Press any key (aka as enter) to continue?"
+read
+# start with lxd containers
+for machine in ${machines[@]}
+    do
+	if [[ $machine = *lxd* ]]; then
+	    echo ">> Working on $machine"
+	    juju scp ./release-upgrades $machine:.
+	    juju ssh $machine sudo mv ./release-upgrades /etc/update-manager/release-upgrades
+	    juju ssh $machine sudo apt update
+	    juju ssh $machine sudo apt -y full-upgrade
+	    juju ssh $machine sudo apt -y autoremove
+####### DO NOT LEAVE THE ONE YOU UPGRADED UNCOMMENTED
+#	    juju ssh $machine sudo add-apt-repository -y cloud-archive:wallaby
+#	    juju ssh $machine sudo add-apt-repository -y cloud-archive:victoria
+#######
+	    juju ssh $machine sudo apt update
+#	    juju ssh $machine sudo do-release-upgrade
+	fi
+done
+# continuing with the physical machines
+for machine in ${machines[@]}
+    do
+	if [[ $machine != *lxd* ]]; then
+	    echo ">> Working on $machine"
+	    juju scp ./release-upgrades $machine:.
+	    juju ssh $machine sudo mv ./release-upgrades /etc/update-manager/release-upgrades
+	    juju ssh $machine sudo apt update
+	    juju ssh $machine sudo apt -y full-upgrade
+	    juju ssh $machine sudo apt -y autoremove
+####### DO NOT LEAVE THE ONE YOU UPGRADED UNCOMMENTED
+#	    juju ssh $machine sudo add-apt-repository -y cloud-archive:wallaby
+#	    juju ssh $machine sudo add-apt-repository -y cloud-archive:victoria
+#######
+	    juju ssh $machine sudo apt update
+#	    juju ssh $machine sudo do-release-upgrade
+	fi
+done
+# finishing the charm upgrade
+watch -n 5 -c juju machines --color
+echo ">> If all went fine press enter. If not... good luck :)"
+read
+for machine in ${machines[@]}
+    do
+	    echo ">> Working on $machine"
+	    juju upgrade-series $machine complete
+done
+echo ">> Press any key to continue?"
+read
